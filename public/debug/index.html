@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WPA BE Bible Proxy · debug console</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/debug/app.css">
+  <script type="module" src="/debug/app.js"></script>
+</head>
+<body>
+<header>
+  <h1>WPA BE Bible Proxy <span class="muted">debug console</span></h1>
+  <div class="header-right">
+    <span class="pill" id="health-live" title="GET /healthz">healthz …</span>
+    <span class="pill" id="health-ready" title="GET /readyz">readyz …</span>
+    <span id="whoami" class="muted small hidden"></span>
+    <button id="signout" class="secondary small hidden">Sign out</button>
+  </div>
+</header>
+
+<!-- ===================== admin sign-in (shown until /admin/whoami succeeds) ===================== -->
+<div id="login-screen" class="login hidden">
+  <section>
+    <h2>Admin sign-in</h2>
+    <p class="hint">Only admins can use this console. Sign in with your <strong id="signin-project">Firebase</strong>
+      account; its Firestore profile <code>users/{uid}</code> must have <code>is_admin: true</code>.</p>
+    <form id="signin-form">
+      <label>Email address <input id="signin-email" type="email" autocomplete="email" placeholder="you@example.com" required></label>
+      <label>Password <input id="signin-password" type="password" autocomplete="current-password" required></label>
+      <button id="signin-go" type="submit">Sign in</button>
+    </form>
+
+    <p id="signin-unconfigured" class="error hidden">Sign-in isn't set up on this server: it has no Firebase web config
+      for the admin project. Add it to <code>src/config/firebase-client-config.json</code> (or mount the file at
+      <code>/etc/secrets/</code>), then restart the proxy.</p>
+
+    <details id="token-details">
+      <summary class="small muted">Use an ID token instead</summary>
+      <textarea id="token-input" rows="4" placeholder="eyJhbGciOi… (ID token of an admin user)" spellcheck="false"></textarea>
+      <p class="hint">Pasted tokens can't be refreshed and stop working within an hour.</p>
+      <button id="token-use" type="button" class="secondary">Use token</button>
+    </details>
+
+    <p id="login-error" class="error hidden"></p>
+  </section>
+</div>
+
+<!-- ===================== console ===================== -->
+<main id="console" class="hidden">
+  <!-- left column -->
+  <div class="col">
+    <section>
+      <h2>Session</h2>
+      <div id="auth-status" class="auth-status"></div>
+      <div class="row">
+        <button id="token-refresh" class="secondary" disabled>Refresh token</button>
+        <button id="token-copy" class="secondary">Copy token</button>
+      </div>
+      <details>
+        <summary>Decoded claims</summary>
+        <pre id="claims" class="small">—</pre>
+      </details>
+    </section>
+
+    <section>
+      <h2>Cache &amp; keys</h2>
+      <div class="row">
+        <button id="stats-load" class="secondary">Load stats</button>
+        <label class="inline"><input type="checkbox" id="stats-auto"> auto-refresh 5s</label>
+      </div>
+      <div id="stats-summary"></div>
+      <details>
+        <summary>Raw stats</summary>
+        <pre id="stats-raw" class="small">—</pre>
+      </details>
+
+      <h3>Purge cache</h3>
+      <label>Bible ID <input id="purge-bible" list="bible-ids" placeholder="e.g. de4e12af7f28f599-02" spellcheck="false"></label>
+      <label>Audio Bible ID <input id="purge-audio" placeholder="optional" spellcheck="false"></label>
+      <div class="row">
+        <button id="purge-go" class="danger">Purge selected</button>
+        <button id="purge-all" class="danger">Purge ALL</button>
+      </div>
+      <pre id="purge-result" class="small">—</pre>
+    </section>
+  </div>
+
+  <!-- right column -->
+  <div class="col wide">
+    <section>
+      <h2>Request</h2>
+      <div class="row presets" id="presets"></div>
+
+      <div class="grid2">
+        <label>Endpoint <select id="route"></select></label>
+        <label>Cache class <input id="route-class" disabled></label>
+      </div>
+      <div id="params" class="grid3"></div>
+      <div id="query" class="grid3"></div>
+
+      <label>URL <span class="muted">(editable; in "skip client auth" mode it is sent under /admin)</span>
+        <input id="url" class="mono" spellcheck="false"></label>
+
+      <div class="grid2">
+        <label>Auth
+          <select id="auth-mode">
+            <option value="client">Client auth: /v1 with an ID token (as the app does)</option>
+            <option value="none">No auth: /v1 without credentials (expect 401)</option>
+            <option value="admin">Skip client auth: /admin/v1 with your admin token</option>
+          </select>
+        </label>
+        <label>App Check token <span class="muted">(client auth, if required)</span>
+          <input id="appcheck" placeholder="optional" spellcheck="false" autocomplete="off"></label>
+      </div>
+      <label id="client-token-wrap">App user ID token <span class="muted">(optional: test as a specific user; defaults to your admin token)</span>
+        <input id="client-token" class="mono" placeholder="eyJhbGciOi…" spellcheck="false" autocomplete="off"></label>
+      <p id="auth-mode-hint" class="hint"></p>
+
+      <div class="row">
+        <button id="send">Send</button>
+        <label class="inline"><input type="checkbox" id="send-etag"> send If-None-Match (last ETag)</label>
+        <span class="spacer"></span>
+        <label class="inline">burst <input id="burst-n" type="number" min="2" max="200" value="20" class="num"></label>
+        <button id="burst" class="secondary" title="Send N identical requests concurrently (tests request coalescing)">Send burst</button>
+        <button id="curl" class="secondary">Copy as curl</button>
+        <button id="bibles-load" class="secondary" title="GET /bibles and fill the Bible ID suggestions">Load bible list</button>
+      </div>
+      <datalist id="bible-ids"></datalist>
+    </section>
+
+    <section>
+      <h2>Response <span id="resp-summary" class="muted"></span></h2>
+      <div id="resp-badges" class="row"></div>
+      <div id="burst-result" class="hidden"></div>
+      <details open>
+        <summary>Headers</summary>
+        <table id="resp-headers" class="headers"></table>
+      </details>
+      <div class="row">
+        <strong>Body</strong>
+        <span id="resp-fums" class="muted small"></span>
+        <span class="spacer"></span>
+        <button id="body-copy" class="secondary small">Copy body</button>
+      </div>
+      <pre id="resp-body" class="body">—</pre>
+    </section>
+
+    <section>
+      <h2>History <span class="muted small">this tab only · click to view</span></h2>
+      <table id="history" class="history">
+        <thead><tr><th>time</th><th>status</th><th>cache</th><th>ms</th><th>request</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </div>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+</body>
+</html>

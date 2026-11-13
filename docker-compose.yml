@@ -1,0 +1,16 @@
+# Local stack: proxy + Redis. API_BIBLE_KEYS in .env; Firebase files in src/config/.
+services:
+  proxy:
+    build: .
+    ports: ["8080:8080"]
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    volumes:
+      # src/config/*.json (service accounts, firebase-client-config) appear at /etc/secrets,
+      # the first place the proxy looks, the same as a Render/Cloud Run secret mount.
+      - ./src/config:/etc/secrets:ro
+    depends_on: [redis]
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]

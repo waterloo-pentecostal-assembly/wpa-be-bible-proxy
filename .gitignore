@@ -1,0 +1,7 @@
+node_modules/
+.env
+*.log
+coverage/
+# Firebase credentials / config (see src/config/firebase.js)
+src/config/*.json
+!src/config/*.example.json

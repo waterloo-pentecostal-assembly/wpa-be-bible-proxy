@@ -1,0 +1,6 @@
+node_modules
+test
+.env
+*.log
+# Never bake credentials into images: mount them at /etc/secrets or pass env vars
+src/config/*.json

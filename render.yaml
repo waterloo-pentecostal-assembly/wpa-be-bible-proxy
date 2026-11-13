@@ -1,0 +1,47 @@
+# Render Blueprint for WPA BE Bible Proxy. See "Hosting on Render" in README.md.
+#
+# Render dashboard → New → Blueprint → pick this repo. Render creates the service below and
+# asks for every `sync: false` value. Then add the three Firebase files as Secret Files
+# (they can't be declared here): service-account.json, service-account-dev.json and
+# firebase-client-config.json. Render mounts them at /etc/secrets/, where the proxy looks first.
+
+services:
+  - type: web
+    name: wpa-be-bible-proxy
+    runtime: node            # Node version comes from .node-version
+    # free: sleeps after ~15 min without traffic, ~30-60 s cold start, cache lost on sleep.
+    # starter (paid): always on. Switch here or in the dashboard when real users depend on it.
+    plan: free
+    region: ohio             # closest to Ontario; can't be changed after the service is created
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/server.js
+    healthCheckPath: /healthz   # not /readyz: an optional Redis outage shouldn't restart the service
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # API.Bible key(s), comma-separated (first = primary). Prompted for when the Blueprint is created.
+      - key: API_BIBLE_KEYS
+        sync: false
+      # Free and starter instances have 512 MB RAM; leave room for Node and firebase-admin.
+      - key: MEMORY_CACHE_MAX_MB
+        value: "64"
+      - key: LOG_LEVEL
+        value: info
+      # Set to "true" if the app signs users in with Firebase Anonymous Auth; otherwise they get 403.
+      - key: ALLOW_ANONYMOUS_USERS
+        value: "false"
+      # Optional: shared cache + rate limits. Uncomment together with the keyvalue service below.
+      # - key: REDIS_URL
+      #   fromService:
+      #     type: keyvalue
+      #     name: wpa-be-bible-proxy-cache
+      #     property: connectionString
+
+  # Optional Redis-compatible cache (Render Key Value). Only worth it with more than one
+  # instance, or to keep the cache across deploys and restarts. See "Redis" in README.md.
+  # - type: keyvalue
+  #   name: wpa-be-bible-proxy-cache
+  #   plan: free
+  #   region: ohio
+  #   maxmemoryPolicy: allkeys-lru
+  #   ipAllowList: []          # reachable only from your Render services
