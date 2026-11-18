@@ -567,7 +567,7 @@ function initAuthMode() {
     client: 'Same path and checks as the mobile/web app (App Check and anonymous-user rules apply).',
     none: 'No credentials are sent; the proxy should answer 401.',
     admin:
-      'Calls /admin/v1/… with your admin token: no App Check or anonymous-user checks, so you are testing the proxy, its cache and API.Bible itself. Still cached and rate limited; misses spend real API.Bible quota.',
+      'Calls /admin/v1/… with your admin token: no App Check, anonymous-user checks or per-user rate limits, so you are testing the proxy, its cache and API.Bible itself. Still cached; misses spend real API.Bible quota.',
   };
   const update = () => {
     localStorage.setItem('bp.authMode', select.value);

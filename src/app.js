@@ -114,22 +114,33 @@ export async function buildApp(deps) {
   });
   const authorizeAdmin = requireAdmin({ verifier: deps.verifier, adminProjectId: deps.adminProjectId, now });
 
-  /** The API.Bible routes, mounted under /v1 (app clients) and /admin/v1 (admins). */
-  const bibleRoutes = async (scope) => {
-    scope.addHook('preHandler', async (req, reply) => {
-      const r = await limiter.hit(`req:${principal(req.user)}`, config.rateLimit.requestsPerMinute);
-      if (!r.allowed) {
-        return reply
-          .code(429)
-          .header('retry-after', r.retryAfterSec)
-          .send(errorBody(429, 'Too Many Requests', 'Rate limit exceeded.'));
-      }
-    });
+  /**
+   * The API.Bible routes, mounted under /v1 (app clients, rate limited) and /admin/v1
+   * (admins, `rateLimit: false`: no per-user request limit or upstream budget).
+   */
+  const bibleRoutes = async (scope, { rateLimit = true }) => {
+    if (rateLimit) {
+      scope.addHook('preHandler', async (req, reply) => {
+        const r = await limiter.hit(`req:${principal(req.user)}`, config.rateLimit.requestsPerMinute);
+        if (!r.allowed) {
+          return reply
+            .code(429)
+            .header('retry-after', r.retryAfterSec)
+            .send(errorBody(429, 'Too Many Requests', 'Rate limit exceeded.'));
+        }
+      });
+    }
     for (const route of ROUTES) {
       scope.get(route.path, async (req, reply) => {
         const path = buildUpstreamPath(route, req.params);
         const query = normalizeQuery(route, req.query);
-        const result = await proxy.get({ path, query, cacheClass: route.cacheClass, uid: principal(req.user) });
+        const result = await proxy.get({
+          path,
+          query,
+          cacheClass: route.cacheClass,
+          uid: principal(req.user),
+          rateLimit,
+        });
         return sendResult(reply, result, req.headers['if-none-match']);
       });
     }
@@ -139,7 +150,7 @@ export async function buildApp(deps) {
   await app.register(
     async (v1) => {
       v1.addHook('preHandler', authenticate);
-      await v1.register(bibleRoutes);
+      await v1.register(bibleRoutes, { rateLimit: true });
     },
     { prefix: '/v1' },
   );
@@ -182,9 +193,10 @@ export async function buildApp(deps) {
 
       /**
        * Same Bible routes as /v1, for admins testing API.Bible through the proxy without the
-       * client-side checks (App Check, anonymous-user rule). Still cached and rate limited.
+       * client-side checks (App Check, anonymous-user rule) and without per-user rate limits.
+       * Still cached; misses spend real API.Bible quota.
        */
-      await admin.register(bibleRoutes, { prefix: '/v1' });
+      await admin.register(bibleRoutes, { prefix: '/v1', rateLimit: false });
 
       admin.get('/stats', async () => ({
         cache: { backend: cache.name, memoryEntries: memory.size, ...proxy.stats },

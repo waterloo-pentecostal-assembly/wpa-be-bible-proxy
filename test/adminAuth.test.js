@@ -69,13 +69,31 @@ describe('/admin/v1 (skip client auth)', () => {
     expect(res.headers['x-cache']).toBe('MISS');
   });
 
-  it('shares the cache with /v1 and is still rate limited', async () => {
-    ctx = await makeApp({ RATE_LIMIT_REQUESTS_PER_MINUTE: '2' });
+  it('shares the cache with /v1', async () => {
+    ctx = await makeApp();
     await ctx.get(VERSE, 'user:alice');
     expect((await ctx.get(`/admin${VERSE}`, 'admin:root')).headers['x-cache']).toBe('HIT');
     expect(ctx.upstream.calls).toHaveLength(1);
-    await ctx.get(`/admin${VERSE}`, 'admin:root');
-    expect((await ctx.get(`/admin${VERSE}`, 'admin:root')).statusCode).toBe(429);
+  });
+
+  it('is not subject to the per-user request limit', async () => {
+    ctx = await makeApp({ RATE_LIMIT_REQUESTS_PER_MINUTE: '1' });
+    for (let i = 0; i < 5; i++) {
+      expect((await ctx.get(`/admin${VERSE}`, 'admin:root')).statusCode).toBe(200);
+    }
+    // /v1 is still limited, even for the same user.
+    expect((await ctx.get(VERSE, 'admin:root')).statusCode).toBe(200);
+    expect((await ctx.get(VERSE, 'admin:root')).statusCode).toBe(429);
+  });
+
+  it('is not subject to the per-user upstream budget', async () => {
+    ctx = await makeApp({ RATE_LIMIT_UPSTREAM_PER_MINUTE: '1' });
+    for (const ref of ['JHN.3.16', 'JHN.3.17', 'JHN.3.18']) {
+      const res = await ctx.get(`/admin/v1/bibles/${BIBLE}/verses/${ref}`, 'admin:root');
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['x-cache']).toBe('MISS');
+    }
+    expect(ctx.upstream.calls).toHaveLength(3);
   });
 
   it('rejects non-admins and unauthenticated callers', async () => {

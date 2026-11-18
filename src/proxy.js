@@ -33,8 +33,12 @@ export class BibleProxy {
       return this.flights.do(key, () => this.refresh(key, req, cached));
     }
 
-    // This request would cost an API.Bible call: charge the user's upstream budget.
-    const budget = await this.opts.limiter.hit(`upstream:${req.uid}`, this.opts.upstreamPerMinute);
+    // This request would cost an API.Bible call: charge the user's upstream budget
+    // (skipped for callers exempt from rate limits, i.e. admins).
+    const budget =
+      req.rateLimit === false
+        ? { allowed: true }
+        : await this.opts.limiter.hit(`upstream:${req.uid}`, this.opts.upstreamPerMinute);
     if (!budget.allowed) {
       this.stats.userThrottled++;
       const stale = this.usableStale(cached);

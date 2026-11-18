@@ -37,11 +37,11 @@ An authenticated caching proxy between the WPA BE apps (web and mobile) and [API
 What happens to `GET /v1/bibles/{bibleId}/verses/JHN.3.16`:
 
 1. **Authenticate** (`src/auth.js`). The bearer token's `aud` claim picks the Firebase project, and that project verifies the token. Missing or invalid tokens get `401`. Anonymous users get `403` unless allowed. App Check is checked if required.
-2. **Per-user request limit** (`src/rateLimit.js`). Counted per `project/uid`, `RATE_LIMIT_REQUESTS_PER_MINUTE` (default 300). Over the limit: `429` with `Retry-After`.
+2. **Per-user request limit** (`src/rateLimit.js`). Counted per `project/uid`, `RATE_LIMIT_REQUESTS_PER_MINUTE` (default 300). Over the limit: `429` with `Retry-After`. Not applied on `/admin/v1`.
 3. **Validate and normalize** (`src/routes.js`). The path must match the route allowlist, and path IDs must look like API.Bible IDs (`400` otherwise). Query parameters must be ones API.Bible documents for that route, each given once. They're trimmed and sorted, so `?b=1&a=2` and `?a=2&b=1` share a cache entry.
 4. **Cache lookup** (`src/proxy.js`, `src/cache/`). Memory first, then Redis if configured. A fresh entry is returned at once (`X-Cache: HIT`).
 5. **Merge identical requests** (`src/singleflight.js`). If the same key is already being fetched, the request waits for that result instead of making another call.
-6. **Per-user upstream budget.** A request that would cost an API.Bible call counts against `RATE_LIMIT_UPSTREAM_PER_MINUTE` (default 30). Over budget: a stale copy if there is one, otherwise `429`.
+6. **Per-user upstream budget.** A request that would cost an API.Bible call counts against `RATE_LIMIT_UPSTREAM_PER_MINUTE` (default 30). Over budget: a stale copy if there is one, otherwise `429`. Not applied on `/admin/v1`.
 7. **Call API.Bible** (`src/upstream.js`, `src/keyPool.js`). Keys are tried in priority order:
    - **401:** the key is paused for 10 minutes and the next key is tried.
    - **429:** the key is paused for `Retry-After` (or 60 s) and the next key is tried.
@@ -199,7 +199,7 @@ All need an admin's ID token (see [Authentication](#authentication)).
 | `GET /admin/stats` | cache counters, API.Bible call count, masked key status |
 | `POST /admin/cache/purge` | `{"all": true}`, `{"bibleId": "…"}` or `{"audioBibleId": "…"}` |
 | `GET /admin/routes` | the route allowlist |
-| `GET /admin/v1/…` | same as `/v1/…` without the client checks (App Check, anonymous users). Still cached and rate limited. |
+| `GET /admin/v1/…` | same as `/v1/…` without the client checks (App Check, anonymous users) and without per-user rate limits. Still cached. |
 
 ### Debug console
 
